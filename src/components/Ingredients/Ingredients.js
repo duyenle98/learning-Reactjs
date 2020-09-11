@@ -1,9 +1,10 @@
-import React, { useReducer, useEffect, useCallback } from 'react';
+import React, { useReducer, useEffect, useCallback, useMemo } from 'react';
 
 import IngredientForm from './IngredientForm';
 import Search from './Search';
 import IngredientList from './IngredientList';
 import ErrorModal from '../UI/ErrorModal';
+import useHttp from '../../hooks/http';
 
 const ingredientReducer = (currentIngredients, action) => {
   switch (action.type) {
@@ -18,27 +19,18 @@ const ingredientReducer = (currentIngredients, action) => {
   }
 };
 
-const httpReducer = (curHttpState, action) => {
-  switch (action.type) {
-    case 'SEND':
-      return { loading: true, error: null };
-    case 'RESPONSE':
-      return { ...curHttpState, loading: false };
-    case 'ERROR':
-      return { loading: false, error: action.errorMessage };
-    case 'CLEAR':
-      return { ...curHttpState, error: null };
-    default:
-      throw new Error('Should not be reached!');
-  }
-};
-
 const Ingredients = () => {
   const [userIngredients, dispatch] = useReducer(ingredientReducer, []);
-  const [httpState, dispatchHttp] = useReducer(httpReducer, {
-    loading: false,
-    error: null,
-  });
+  const {
+    isLoading,
+    error,
+    data,
+    sendRequest,
+    reqExtra,
+    reqIdentifier,
+    clear,
+  } = useHttp();
+
   // const [userIngredients, setUserIngredients] = useState([]);
   // const [isLoading, setIsLoading] = useState(false);
   // const [error, setError] = useState();
@@ -60,88 +52,87 @@ const Ingredients = () => {
   // }, []);
 
   useEffect(() => {
-    console.log('rendering ingredients', userIngredients);
-  }, [userIngredients]);
+    if (!isLoading && !error && reqIdentifier === 'REMOVE_INGREDIENT') {
+      dispatch({ type: 'DELETE', id: reqExtra });
+    } else if (!isLoading && !error && reqIdentifier === 'ADD_INGREDIENT') {
+      dispatch({
+        type: 'ADD',
+        ingredient: { id: data.name, ...reqExtra },
+      });
+    }
+  }, [data, reqExtra, reqIdentifier, isLoading, error]);
 
   const filteredIngredientsHandler = useCallback(filteredIngredients => {
     // setUserIngredients(filteredIngredients);
     dispatch({ type: 'SET', ingredients: filteredIngredients });
   }, []);
 
-  const addIngredientHandler = ingredient => {
-    // setIsLoading(true);
-    dispatchHttp({ type: 'SEND' });
-    fetch('https://react-hooks-update-8eae9.firebaseio.com/ingredients.json', {
-      method: 'POST',
-      body: JSON.stringify(ingredient),
-      headers: { 'Content-Type': 'application/json' },
-    })
-      .then(response => {
-        // setIsLoading(false);
-        dispatchHttp({ type: 'RESPONSE' });
-        return response.json();
-      })
-      .then(responseData => {
-        // setUserIngredients(prevIngredients => [
-        //   ...prevIngredients,
-        //   { id: responseData.name, ...ingredient },
-        // ]);
-        dispatch({
-          type: 'ADD',
-          ingredient: { id: responseData.name, ...ingredient },
-        });
-      });
-  };
+  const addIngredientHandler = useCallback(
+    ingredient => {
+      sendRequest(
+        'https://react-hooks-update-8eae9.firebaseio.com/ingredients.json',
+        'POST',
+        JSON.stringify(ingredient),
+        ingredient,
+        'ADD_INGREDIENT'
+      );
+      // dispatchHttp({ type: 'SEND' });
+      // fetch('https://react-hooks-update-8eae9.firebaseio.com/ingredients.json', {
+      //   method: 'POST',
+      //   body: JSON.stringify(ingredient),
+      //   headers: { 'Content-Type': 'application/json' },
+      // })
+      //   .then(response => {
+      //     dispatchHttp({ type: 'RESPONSE' });
+      //     return response.json();
+      //   })
+      //   .then(responseData => {
+      //     // setUserIngredients(prevIngredients => [
+      //     //   ...prevIngredients,
+      //     //   { id: responseData.name, ...ingredient },
+      //     // ]);
+      //     dispatch({
+      //       type: 'ADD',
+      //       ingredient: { id: responseData.name, ...ingredient },
+      //     });
+      //   });
+    },
+    [sendRequest]
+  );
 
-  const removeIngredientHandler = ingredientId => {
-    // setIsLoading(true);
-    dispatchHttp({ type: 'SEND' });
-    fetch(
-      `https://react-hooks-update-8eae9.firebaseio.com/ingredients/${ingredientId}.json`,
-      {
-        method: 'DELETE',
-      }
-    )
-      .then(response => {
-        // setIsLoading(false);
-        dispatchHttp({ type: 'RESPONSE' });
-        // setUserIngredients(prevIngredients =>
-        //   prevIngredients.filter(ingredient => ingredient.id !== ingredientId)
-        // );
-        dispatch({ type: 'DELETE', id: ingredientId });
-      })
-      .catch(error => {
-        // setError(error.message);
+  const removeIngredientHandler = useCallback(
+    ingredientId => {
+      sendRequest(
+        `https://react-hooks-update-8eae9.firebaseio.com/ingredients/${ingredientId}.json`,
+        'DELETE',
+        null,
+        ingredientId,
+        'REMOVE_INGREDIENT'
+      );
+    },
+    [sendRequest]
+  );
 
-        // setError('Something went wrong!');
-        // setIsLoading(false);
-        dispatchHttp({ type: 'ERROR', errorMessage: 'Something went wrong!' });
-      });
-  };
-
-  const clearError = () => {
-    // setError(null);
-    // setIsLoading(false); // 2 cai nay xay ra trong cung 1 lan render
-
-    dispatchHttp({ type: 'CLEAR' });
-  };
+  const ingredientList = useMemo(() => {
+    return (
+      <IngredientList
+        ingredients={userIngredients}
+        onRemoveItem={removeIngredientHandler}
+      />
+    );
+  }, [userIngredients, removeIngredientHandler]);
 
   return (
     <div className="App">
-      {httpState.error && (
-        <ErrorModal onClose={clearError}>{httpState.error}</ErrorModal>
-      )}
+      {error && <ErrorModal onClose={clear}>{error}</ErrorModal>}
       <IngredientForm
         onAddIngredient={addIngredientHandler}
-        loading={httpState.loading}
+        loading={isLoading}
       />
 
       <section>
         <Search onLoadIngredients={filteredIngredientsHandler} />
-        <IngredientList
-          ingredients={userIngredients}
-          onRemoveItem={removeIngredientHandler}
-        />
+        {ingredientList}
       </section>
     </div>
   );
